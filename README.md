@@ -37,6 +37,11 @@ mr base default reset               # back to origin/<default-branch>
 mr rebase                           # git rebase onto this worktree's base (fetches if remote)
 mr rebase --no-fetch                # skip fetch (offline)
 
+mr rebase --onto <new-base>         # retarget onto <new-base>, replaying old-base..HEAD only
+mr rebase --onto <new-base> --no-fetch
+mr rebase --continue / --skip      # resume after conflicts (sets base when done)
+mr rebase --abort                   # give up (base stays on the old base)
+
 mr reset                            # git reset --mixed onto this worktree's base (fetches if remote)
 mr reset --soft / --mixed / --hard  # reset mode (default: --mixed)
 mr reset --no-fetch                 # skip fetch (offline)
@@ -71,6 +76,14 @@ Notes:
   or `git checkout -b` refuses (e.g. uncommitted changes would be overwritten).
 - `mr rebase` rebases the current branch onto this worktree's base with stdio
   inherited, so conflicts/editors behave like plain `git rebase`.
+- `mr rebase --onto <new-base>` retargets a stacked branch via
+  `git rebase --onto <new> <old>` (old = current base), replaying only
+  `old..HEAD`. Use this — not `mr base set` + `mr rebase` — when the old base
+  was squash-merged, otherwise squashed commits replay as duplicates. The base
+  pointer switches only after the rebase completes; conflicts keep the old base
+  and stash the intent until `mr rebase --continue` (`--skip` skips a patch,
+  `--abort` drops the intent). Finishing with plain `git rebase --continue`
+  leaves the base unchanged (run `mr base set <new-base>` to adopt it).
 - `mr reset` resets the current branch pointer to this worktree's base with
   stdio inherited (`--mixed` by default, `--soft`/`--hard` optional;
   `--hard` discards index and working-tree changes).

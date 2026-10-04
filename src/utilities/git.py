@@ -231,6 +231,40 @@ def exec_rebase(base: str, cwd: Path) -> int:
     return result.returncode
 
 
+def exec_rebase_onto(new_base: str, old_base: str, cwd: Path) -> int:
+    """Inheriting ``git rebase --onto <new> <old>`` (retarget, squash-safe).
+
+    Replays only ``<old>..HEAD`` onto ``<new>`` so commits already
+    squashed into ``<new>`` via the old base are not replayed.
+    Returns the git exit code.
+    """
+    result = run_git(["rebase", "--onto", new_base, old_base], cwd, check=False, capture=False)
+    return result.returncode
+
+
+def exec_rebase_continue(cwd: Path) -> int:
+    """Inheriting ``git rebase --continue`` so conflicts/editors behave like git."""
+    result = run_git(["rebase", "--continue"], cwd, check=False, capture=False)
+    return result.returncode
+
+
+def exec_rebase_skip(cwd: Path) -> int:
+    """Inheriting ``git rebase --skip`` so output behaves like git."""
+    result = run_git(["rebase", "--skip"], cwd, check=False, capture=False)
+    return result.returncode
+
+
+def exec_rebase_abort(cwd: Path) -> int:
+    """Inheriting ``git rebase --abort`` so output behaves like git."""
+    result = run_git(["rebase", "--abort"], cwd, check=False, capture=False)
+    return result.returncode
+
+
+def fetch_remote(remote: str, branch: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Captured ``git fetch <remote> <branch>`` (narrow, best-effort or blocking)."""
+    return run_git(["fetch", remote, branch], cwd, check=False)
+
+
 def is_clean(cwd: Path) -> bool:
     """True when there are no staged or unstaged changes (untracked ignored)."""
     unstaged = run_git(["diff", "--quiet"], cwd, check=False)
@@ -254,6 +288,8 @@ def operation_in_progress(cwd: Path) -> str | None:
         ("MERGE_HEAD", "merge"),
         ("REBASE_MERGE", "rebase"),
         ("REBASE_APPLY", "rebase"),
+        ("rebase-merge", "rebase"),
+        ("rebase-apply", "rebase"),
         ("CHERRY_PICK_HEAD", "cherry-pick"),
         ("REVERT_HEAD", "revert"),
         ("BISECT_LOG", "bisect"),

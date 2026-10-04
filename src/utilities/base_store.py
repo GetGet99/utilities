@@ -18,6 +18,54 @@ from utilities import git as gitops
 
 BASE_FILENAME = "mr-base"
 DEFAULT_FILENAME = "mr-default"
+PENDING_FILENAME = "mr-rebase-onto"
+
+
+def pending_file_path(cwd: Path) -> Path:
+    return gitops.worktree_git_dir(cwd) / PENDING_FILENAME
+
+
+def get_pending_rebase_onto(cwd: Path) -> str | None:
+    """Pending ``--onto`` target for this worktree, or None when idle.
+
+    Set by ``mr rebase --onto`` before rebasing; cleared on
+    ``--continue`` success, ``--abort``, or explicit ``base set/reset``.
+    """
+    try:
+        path = pending_file_path(cwd)
+    except gitops.GitError:
+        return None
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+    if not content:
+        return None
+    return content.splitlines()[0].strip() or None
+
+
+def set_pending_rebase_onto(ref: str, cwd: Path) -> str:
+    """Record a pending ``--onto`` target (plain write, already validated)."""
+    path = pending_file_path(cwd)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(ref.strip() + "\n", encoding="utf-8")
+    return ref.strip()
+
+
+def clear_pending_rebase_onto(cwd: Path) -> None:
+    """Drop any pending ``--onto`` target (best-effort, never raises)."""
+    try:
+        path = pending_file_path(cwd)
+    except gitops.GitError:
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
 
 
 def base_file_path(cwd: Path) -> Path:

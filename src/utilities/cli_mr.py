@@ -48,6 +48,31 @@ def build_parser() -> argparse.ArgumentParser:
     default_sub.add_parser("reset", help="Reset repo default to origin/<default-branch>")
 
     p_rebase = sub.add_parser("rebase", help="Rebase the current branch onto this worktree's base")
+    onto_group = p_rebase.add_mutually_exclusive_group()
+    onto_group.add_argument(
+        "--onto",
+        metavar="NEW_BASE",
+        default=None,
+        help="Retarget onto NEW_BASE replaying only old-base..HEAD (squash-safe).",
+    )
+    onto_group.add_argument(
+        "--continue",
+        dest="continue_op",
+        action="store_true",
+        help="Continue an in-progress rebase (applies pending --onto base when done).",
+    )
+    onto_group.add_argument(
+        "--skip",
+        dest="skip_op",
+        action="store_true",
+        help="Skip the current patch and continue the rebase.",
+    )
+    onto_group.add_argument(
+        "--abort",
+        dest="abort_op",
+        action="store_true",
+        help="Abort the in-progress rebase and drop any pending --onto base.",
+    )
     p_rebase.add_argument(
         "--no-fetch",
         action="store_true",
@@ -250,6 +275,7 @@ def cmd_new(branch: str, base: str | None, *, fetch: bool) -> int:
             print(result.stderr.rstrip(), file=sys.stderr)
         return result.returncode
     base_store.set_base_after_create(resolved_base, cwd)
+    base_store.clear_pending_rebase_onto(cwd)
     print(f"Switched to a new branch '{branch}' from '{resolved_base}'")
     return 0
 
@@ -271,6 +297,7 @@ def cmd_base_set(ref: str, *, fetch: bool) -> int:
     except gitops.GitError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    base_store.clear_pending_rebase_onto(cwd)
     print(f"base set to '{stored}'")
     return 0
 
@@ -282,6 +309,7 @@ def cmd_base_reset() -> int:
     except gitops.GitError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    base_store.clear_pending_rebase_onto(cwd)
     print(f"base reset to '{ref}'")
     return 0
 
@@ -330,6 +358,14 @@ def cmd_rebase(*, fetch: bool) -> int:
     except gitops.GitError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    pending = base_store.get_pending_rebase_onto(cwd)
+    if pending is not None:
+        print(
+            f"warning: stale --onto intent for '{pending}' exists "
+            "(finished with git directly?) — base unchanged; "
+            f"run 'mr base set {pending}' to adopt or 'mr rebase --abort' to drop it",
+            file=sys.stderr,
+        )
     try:
         gitops.ensure_fresh_base(base, cwd, fetch=fetch)
     except gitops.GitError as exc:
@@ -337,6 +373,176 @@ def cmd_rebase(*, fetch: bool) -> int:
         return 2
     # Inherit stdio so conflicts/editors behave like plain `git rebase`.
     return gitops.exec_rebase(base, cwd)
+
+
+def cmd_rebase_onto(new_base: str, *, fetch: bool) -> int:
+    """Retarget the current branch onto *new_base*, replaying old-base..HEAD.
+
+    Uses ``git rebase --onto <new> <old>`` so commits already squashed
+    into the new base via the old base are not replayed. The mr-base
+    pointer switches only after the rebase completes; conflicts leave the
+    old base in place and stash the intent for ``mr rebase --continue``.
+    """
+    cwd = _cwd()
+    try:
+        gitops.repo_root(cwd)
+    except gitops.GitError as exc:
+        print(f"error: not a git repository: {exc}", file=sys.stderr)
+        return 2
+    current = gitops.current_branch(cwd)
+    if current is None:
+        print("error: detached HEAD — checkout a branch first", file=sys.stderr)
+        return 2
+    op = gitops.operation_in_progress(cwd)
+    if op is not None:
+        print(f"error: '{current}' worktree is mid-{op} — resolve it first", file=sys.stderr)
+        return 2
+    if not gitops.is_clean(cwd):
+        print("error: working tree has uncommitted changes", file=sys.stderr)
+        return 2
+    try:
+        old_base = base_store.get_base(cwd)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    parsed_new = gitops.parse_remote_ref(new_base, cwd)
+    local_new = parsed_new[1] if parsed_new is not None else new_base
+    if current == local_new:
+        print(
+            f"error: already on base branch '{current}' — there is nothing to transplant",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        gitops.ensure_fresh_base(new_base, cwd, fetch=fetch)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if fetch:
+        parsed_old = gitops.parse_remote_ref(old_base, cwd)
+        if parsed_old is not None:
+            remote, branch = parsed_old
+            fetched = gitops.fetch_remote(remote, branch, cwd)
+            if fetched.returncode != 0:
+                detail = (fetched.stderr or "").strip() if fetched.stderr else ""
+                print(
+                    f"warning: failed to fetch old base '{old_base}': "
+                    f"{detail or 'exit ' + str(fetched.returncode)} — continuing",
+                    file=sys.stderr,
+                )
+    try:
+        gitops.resolve_to_commit(old_base, cwd)
+    except gitops.GitError:
+        print(f"error: base '{old_base}' does not resolve to a commit", file=sys.stderr)
+        return 2
+    try:
+        to_replay = gitops.rev_list_count(f"{old_base}..HEAD", cwd)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if to_replay == 0:
+        try:
+            stored = base_store.set_base(new_base, cwd, fetch=False)
+        except gitops.GitError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        base_store.clear_pending_rebase_onto(cwd)
+        print(f"Nothing to replay — '{current}' has no commits beyond {old_base}.")
+        print(f"base set to '{stored}'")
+        return 0
+
+    base_store.set_pending_rebase_onto(new_base.strip(), cwd)
+    rc = gitops.exec_rebase_onto(new_base, old_base, cwd)
+    if rc == 0:
+        if gitops.operation_in_progress(cwd) is not None:
+            print(
+                "Rebase step finished but another operation is in progress — "
+                "pending base kept; run 'mr rebase --continue' when done.",
+                file=sys.stderr,
+            )
+            return rc
+        try:
+            stored = base_store.set_base(new_base, cwd, fetch=False)
+        except gitops.GitError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        base_store.clear_pending_rebase_onto(cwd)
+        print(f"Rebased {to_replay} commit(s) onto '{new_base}' — base set to '{stored}'.")
+        return 0
+    if gitops.operation_in_progress(cwd) is None:
+        # Rebase never started (not a conflict) — drop the intent we just wrote.
+        base_store.clear_pending_rebase_onto(cwd)
+        return rc
+    print(
+        f"Rebase stopped with conflicts in '{current}'. Finish it yourself:",
+        file=sys.stderr,
+    )
+    print("  mr rebase --continue   # after resolving conflicts", file=sys.stderr)
+    print("  mr rebase --abort      # to give up (base stays on old base)", file=sys.stderr)
+    return rc
+
+
+def _cmd_rebase_resume(*, mode: str) -> int:
+    """Shared ``--continue`` / ``--skip`` handling with pending-base apply."""
+    cwd = _cwd()
+    try:
+        gitops.repo_root(cwd)
+    except gitops.GitError as exc:
+        print(f"error: not a git repository: {exc}", file=sys.stderr)
+        return 2
+    pending = base_store.get_pending_rebase_onto(cwd)
+    if mode == "skip":
+        rc = gitops.exec_rebase_skip(cwd)
+    else:
+        rc = gitops.exec_rebase_continue(cwd)
+    if rc != 0 or gitops.operation_in_progress(cwd) is not None:
+        if pending is not None and gitops.operation_in_progress(cwd) is None:
+            print(
+                f"error: no rebase in progress, but pending --onto '{pending}' exists "
+                "— you likely finished with 'git rebase --continue'; "
+                f"run 'mr base set {pending}' to adopt or 'mr rebase --abort' "
+                "to drop it",
+                file=sys.stderr,
+            )
+        return rc
+    if pending is None:
+        return 0
+    try:
+        stored = base_store.set_base(pending, cwd, fetch=False)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    base_store.clear_pending_rebase_onto(cwd)
+    print(f"base set to '{stored}'")
+    return 0
+
+
+def cmd_rebase_continue() -> int:
+    """Continue an in-progress rebase; apply a pending ``--onto`` base when done."""
+    return _cmd_rebase_resume(mode="continue")
+
+
+def cmd_rebase_skip() -> int:
+    """Skip the current patch; apply a pending ``--onto`` base when done."""
+    return _cmd_rebase_resume(mode="skip")
+
+
+def cmd_rebase_abort() -> int:
+    """Abort the in-progress rebase and drop any pending ``--onto`` base."""
+    cwd = _cwd()
+    try:
+        gitops.repo_root(cwd)
+    except gitops.GitError as exc:
+        print(f"error: not a git repository: {exc}", file=sys.stderr)
+        return 2
+    pending = base_store.get_pending_rebase_onto(cwd)
+    rc = gitops.exec_rebase_abort(cwd)
+    base_store.clear_pending_rebase_onto(cwd)
+    if pending is not None:
+        print(f"Dropped pending base '{pending}'.")
+    return rc
 
 
 def cmd_reset(*, mode: str = "mixed", fetch: bool) -> int:
@@ -818,6 +1024,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "new":
         return cmd_new(args.branch, args.base, fetch=not args.no_fetch)
     if args.command == "rebase":
+        if args.onto is not None:
+            return cmd_rebase_onto(args.onto, fetch=not args.no_fetch)
+        if args.continue_op:
+            return cmd_rebase_continue()
+        if args.skip_op:
+            return cmd_rebase_skip()
+        if args.abort_op:
+            return cmd_rebase_abort()
         return cmd_rebase(fetch=not args.no_fetch)
     if args.command == "reset":
         if args.soft:
