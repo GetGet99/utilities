@@ -194,3 +194,134 @@ def exec_rebase(base: str, cwd: Path) -> int:
     """
     result = run_git(["rebase", base], cwd, check=False, capture=False)
     return result.returncode
+
+
+def is_clean(cwd: Path) -> bool:
+    """True when there are no staged or unstaged changes (untracked ignored)."""
+    unstaged = run_git(["diff", "--quiet"], cwd, check=False)
+    if unstaged.returncode != 0:
+        return False
+    staged = run_git(["diff", "--cached", "--quiet"], cwd, check=False)
+    return staged.returncode == 0
+
+
+def operation_in_progress(cwd: Path) -> str | None:
+    """Describe an in-progress operation in *cwd*, or None when idle.
+
+    Checks worktree-private state files (MERGE_HEAD, rebase dirs,
+    CHERRY_PICK_HEAD, REVERT_HEAD, BISECT_LOG).
+    """
+    try:
+        gd = git_dir(cwd)
+    except GitError:
+        return None
+    checks = (
+        ("MERGE_HEAD", "merge"),
+        ("REBASE_MERGE", "rebase"),
+        ("REBASE_APPLY", "rebase"),
+        ("CHERRY_PICK_HEAD", "cherry-pick"),
+        ("REVERT_HEAD", "revert"),
+        ("BISECT_LOG", "bisect"),
+    )
+    for filename, label in checks:
+        try:
+            if (gd / filename).exists():
+                return label
+        except OSError:
+            continue
+    return None
+
+
+def worktree_branches(cwd: Path) -> dict[str, Path]:
+    """Map local branch short name -> worktree path for all linked worktrees.
+
+    Parses ``git worktree list --porcelain``. Detached, bare, or corrupted
+    entries are skipped.
+    """
+    result = run_git(["worktree", "list", "--porcelain"], cwd, check=False)
+    if result.returncode != 0:
+        raise GitError("cannot list worktrees")
+    mapping: dict[str, Path] = {}
+    current_wt: Path | None = None
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            try:
+                current_wt = Path(line[len("worktree ") :].strip()).resolve()
+            except OSError:
+                current_wt = None
+        elif line.startswith("branch refs/heads/"):
+            if current_wt is not None:
+                branch = line[len("branch refs/heads/") :].strip()
+                if branch:
+                    mapping[branch] = current_wt
+        elif line == "bare" or line == "detached":
+            # A following "branch ..." line never occurs for these, but if
+            # the entry was bare/detached, drop any pending association.
+            # Handled implicitly: detached entries emit no branch line.
+            continue
+    return mapping
+
+
+def find_worktree_for_branch(branch: str, cwd: Path) -> Path | None:
+    """Worktree path owning *branch*, or None when not checked out anywhere."""
+    try:
+        return worktree_branches(cwd).get(branch)
+    except GitError:
+        return None
+
+
+def rev_parse(ref: str, cwd: Path) -> str:
+    """Full SHA for *ref*; raise GitError if it does not resolve."""
+    result = run_git(["rev-parse", "--verify", ref], cwd, check=False)
+    if result.returncode != 0:
+        raise GitError(f"ref '{ref}' does not resolve")
+    return result.stdout.strip()
+
+
+def rev_list_count(rev_range: str, cwd: Path) -> int:
+    """Number of commits in *rev_range* (e.g. ``main..HEAD``)."""
+    result = run_git(["rev-list", "--count", rev_range], cwd, check=False)
+    if result.returncode != 0:
+        raise GitError(f"cannot count commits in '{rev_range}'")
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        raise GitError(f"cannot count commits in '{rev_range}'")
+
+
+def commit_subjects(rev_range: str, cwd: Path) -> list[str]:
+    """Commit subjects (oldest first) in *rev_range*."""
+    result = run_git(["log", "--format=%s", "--reverse", rev_range], cwd, check=False)
+    if result.returncode != 0:
+        raise GitError(f"cannot list commits in '{rev_range}'")
+    return [line for line in (line.strip() for line in result.stdout.splitlines()) if line]
+
+
+def merge_ff_only(ref: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Captured ``git merge --ff-only <ref>``."""
+    return run_git(["merge", "--ff-only", ref], cwd, check=False)
+
+
+def merge_squash(branch: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Captured ``git merge --squash <branch>``."""
+    return run_git(["merge", "--squash", branch], cwd, check=False)
+
+
+def merge_no_ff(branch: str, message: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Captured ``git merge --no-ff <branch> -m <message>``."""
+    return run_git(["merge", "--no-ff", branch, "-m", message], cwd, check=False)
+
+
+def commit(message: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Captured ``git commit -m <message>``."""
+    return run_git(["commit", "-m", message], cwd, check=False)
+
+
+def reset_to(ref: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Captured ``git reset <ref>`` (mixed; moves pointer, keeps worktree)."""
+    return run_git(["reset", ref], cwd, check=False)
+
+
+def push(remote: str, branch: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Captured ``git push <remote> <branch>``."""
+    return run_git(["push", remote, branch], cwd, check=False)

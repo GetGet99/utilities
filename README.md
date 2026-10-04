@@ -36,6 +36,17 @@ mr base default reset               # back to origin/<default-branch>
 
 mr rebase                           # git rebase onto this worktree's base (fetches if remote)
 mr rebase --no-fetch                # skip fetch (offline)
+
+mr merge                            # rebase onto base, then squash-merge into the base worktree
+mr merge -m "ship it"               # custom squash/merge message
+mr merge --no-ff                    # regular merge commit instead of squash
+mr merge --no-fetch                 # skip fetch (offline)
+mr merge --push / --no-push         # override push policy (default: auto)
+
+mr config list                      # global behavior defaults
+mr config set merge.strategy merge  # default merge mode: squash | merge
+mr config set merge.push never      # default push policy: auto | always | never
+mr config reset [key]               # drop one key (or all global config)
 ```
 
 Notes:
@@ -52,6 +63,14 @@ Notes:
 - Remote bases (`origin/<branch>`) are refreshed with `git fetch <remote> <branch>`
   before use; fetch failure hard-fails. Branch names with slashes like
   `feat/foo` are never mistaken for a remote.
+- `mr merge` rebases the current branch onto the local base, then merges inside
+  the worktree that owns the base branch (which must exist — the merge aborts
+  otherwise). Running it while on the base itself is blocked, as are dirty or
+  mid-rebase/merge worktrees on either side. Remote bases (`origin/main`) are
+  fast-forwarded into the base worktree first (diverged/behind aborts); local
+  bases are used as-is. Push policy is `auto` by default: push only when the
+  base is a remote ref. The feature branch is realigned onto the base
+  afterwards (never auto-deleted).
 
 ## `mr-diff` — GitLab-style diff vs base (committed + staged + unstaged)
 
