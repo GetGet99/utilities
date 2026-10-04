@@ -16,6 +16,25 @@ uv venv .venv && uv pip install -e .
 
 This provides `mr` and `mr-diff` on `PATH`.
 
+## Shell completion
+
+`mr` and `mr-diff` ship tab-completion for bash and zsh (subcommands,
+flags, git branches, review files, config keys/values):
+
+```sh
+# zsh (~/.zshrc, after compinit)
+eval "$(mr --print-completion zsh)"
+eval "$(mr-diff --print-completion zsh)"
+
+# bash (~/.bashrc)
+eval "$(mr --print-completion bash)"
+eval "$(mr-diff --print-completion bash)"
+```
+
+Base positions (`mr new <base>`, `mr base set`, `mr rebase --onto`, …)
+suggest local + remote-tracking branches; `mr-diff file` suggests files
+from `mr-diff list --name-only`.
+
 ## `mr` — branch + base helper
 
 ```sh

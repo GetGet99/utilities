@@ -10,6 +10,7 @@ from pathlib import Path
 from utilities import base_store, config_store
 from utilities import git as gitops
 from utilities import glab as glabops
+from utilities.completion import handle_print_completion
 
 
 def _cwd() -> Path:
@@ -18,6 +19,12 @@ def _cwd() -> Path:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mr", description="Branch + base-branch helper")
+    parser.add_argument(
+        "--print-completion",
+        choices=["bash", "zsh"],
+        default=None,
+        help="Print shell completion script and exit.",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_new = sub.add_parser("new", help="Create a new branch from a base and switch to it")
@@ -1021,6 +1028,9 @@ def cmd_config_reset(key: str | None) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    completed = handle_print_completion("mr", argv)
+    if completed is not None:
+        return completed
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "new":

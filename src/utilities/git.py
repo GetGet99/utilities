@@ -155,6 +155,40 @@ def branch_exists(name: str, cwd: Path) -> bool:
     return result.returncode == 0
 
 
+def list_local_branches(cwd: Path) -> list[str]:
+    """Sorted local branch short names, or [] when git fails (e.g. no repo).
+
+    Used for shell completion of base-ish positions (never raises).
+    """
+    result = run_git(["branch", "--format=%(refname:short)"], cwd, check=False)
+    if result.returncode != 0:
+        return []
+    return sorted({line.strip() for line in result.stdout.splitlines() if line.strip()})
+
+
+def list_remote_branches(cwd: Path) -> list[str]:
+    """Sorted remote-tracking branches (e.g. ``origin/main``), or [] on failure.
+
+    ``origin/HEAD -> origin/main`` symref lines are filtered out.
+    Used for shell completion of base-ish positions (never raises).
+    """
+    result = run_git(["branch", "-r", "--format=%(refname:short)"], cwd, check=False)
+    if result.returncode != 0:
+        return []
+    names: set[str] = set()
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if not stripped or " -> " in stripped:
+            continue
+        names.add(stripped)
+    return sorted(names)
+
+
+def list_completion_refs(cwd: Path) -> list[str]:
+    """Sorted local + remote-tracking refs for base completion (never raises)."""
+    return sorted(set(list_local_branches(cwd)) | set(list_remote_branches(cwd)))
+
+
 def merge_base(base: str, cwd: Path) -> str:
     """Full SHA of ``git merge-base <base> HEAD``."""
     result = run_git(["merge-base", base, "HEAD"], cwd, check=False)

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from utilities import base_store
 from utilities import git as gitops
+from utilities.completion import handle_print_completion
 
 
 def _cwd() -> Path:
@@ -23,6 +24,12 @@ def _cwd() -> Path:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mr-diff", description="Review-scope diff of current branch vs base"
+    )
+    parser.add_argument(
+        "--print-completion",
+        choices=["bash", "zsh"],
+        default=None,
+        help="Print shell completion script and exit.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     p_list = sub.add_parser("list", help="List files changed vs base")
@@ -112,6 +119,9 @@ def cmd_file(path: str) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    completed = handle_print_completion("mr-diff", argv)
+    if completed is not None:
+        return completed
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "list":
