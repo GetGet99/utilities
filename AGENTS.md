@@ -10,6 +10,10 @@ pyproject.toml          # single project, one [project.scripts] entry per CLI
 src/utilities/
   git.py                # ALL git subprocess I/O (no git calls elsewhere)
   base_store.py         # per-worktree base pointer (shared by mr + mr-diff)
+  config_store.py       # global mr config (~/.config/mr/config)
+  glab.py               # glab subprocess wrapper (optional dep, publish only)
+  completion.py         # --print-completion + `mr completion install` logic (shared)
+  completions/          # <prog>.bash + <prog>.zsh scripts (package data, see §6)
   cli_<name>.py         # ONE argparse CLI per file, with build_parser() + main()
 tests/
   conftest.py           # tmp git repo + origin fixtures (use them, don't hand-roll)
@@ -26,6 +30,7 @@ README.md               # user-facing usage
 - Runtime dependencies: **stdlib only** (`argparse`, `subprocess`, `pathlib`, …).
   Dev tools (`pytest`, `ruff`, `mypy`) live in `[dependency-groups] dev`.
 - No shell scripts for CLIs. All CLIs are Python modules with type annotations.
+  (Completion scripts under `completions/` are package *data*, not CLIs — see §6.)
 - All git access goes through `src/utilities/git.py` (`run_git` wrapper).
   Never call `subprocess` + `git` directly from a `cli_*.py`, except the
   pager-sensitive `git diff` exec already isolated in `git.exec_diff_patch`
@@ -54,7 +59,11 @@ README.md               # user-facing usage
    list so `feat/foo` is NOT treated as remote `feat`).
 4. Add `tests/test_<name>.py` using `git_repo` fixture from `conftest.py`.
    Cover: happy path, branch-exists / bad-ref blocks, per-worktree isolation if stateful.
-5. Update `README.md` usage section.
+5. Add completion: `src/utilities/completions/<name>.bash` + `<name>.zsh`
+   (copy the closest existing script), register `<name>` in
+   `completion.SUPPORTED_PROGRAMS`, and extend `tests/test_completion.py`.
+   The `completions/*` package-data glob already covers the new files.
+6. Update `README.md` usage section.
 
 ## 4. fetch semantics (shared by `mr new`, future `mr rebase`)
 
@@ -78,7 +87,28 @@ README.md               # user-facing usage
 - `file` takes a single file only; directories are rejected (exit 2).
   `file` inherits stdio (pager/color like git); `list` captures and prints.
 
-## 6. Quality gates (run before every commit)
+## 6. Shell completion (bash + zsh)
+
+- Scripts live as real shell files in `src/utilities/completions/<prog>.{bash,zsh}`
+  (correct IDE highlighting; never embed scripts in Python strings). They are
+  served by `completion.py:render_completion()` via
+  `<prog> --print-completion {bash,zsh}`, loaded with `importlib.resources`.
+- They are **package data**: keep them covered by
+  `[tool.setuptools.package-data]` in `pyproject.toml`, or installed copies
+  (`uv tool`, pipx) will silently miss them. When in doubt, verify with a
+  wheel build (`uv build --wheel`, then `unzip -l` the wheel).
+- `mr completion install|uninstall|status` manages ONE marked block per rc file
+  covering every CLI in `completion.SUPPORTED_PROGRAMS` — keep it joint,
+  don't fragment one block per CLI.
+- Rule: **any new subcommand, flag, or positional arg MUST update every affected
+  completion script (bash + zsh) in the same commit**, plus `tests/test_completion.py`.
+- Dynamic candidates (branches, files) resolve in-shell with **read-only** `git`
+  calls only — never fetch, never write, fail silent outside repos.
+  Python-side candidate helpers (if needed) go in `git.py` via `run_git`
+  and must never raise (return `[]` outside repos).
+- Verify edited scripts with `bash -n` / `zsh -n` on top of the pytest suite.
+
+## 7. Quality gates (run before every commit)
 
 ```sh
 .venv/bin/python -m pytest tests -q
@@ -90,7 +120,7 @@ README.md               # user-facing usage
 Style: `ruff` defaults (`line-length = 100`, `target-version = py39`),
 `mypy strict = true`. Fix warnings instead of adding ignores.
 
-## 7. Commits
+## 8. Commits
 
 - Conventional commits: `feat(mr): ...`, `fix(mr-diff): ...`, `chore(...)`, `docs(...)`.
 - One logical change per commit; update tests + README in the same commit as behavior.
