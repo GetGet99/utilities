@@ -54,6 +54,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip fetching when base is a remote branch (default: fetch).",
     )
 
+    p_reset = sub.add_parser("reset", help="Reset the current branch to this worktree's base")
+    reset_mode = p_reset.add_mutually_exclusive_group()
+    reset_mode.add_argument(
+        "--soft",
+        dest="soft",
+        action="store_true",
+        default=False,
+        help="Keep index and working tree (git reset --soft).",
+    )
+    reset_mode.add_argument(
+        "--mixed",
+        dest="mixed",
+        action="store_true",
+        default=False,
+        help="Keep working tree, reset index (default; git reset --mixed).",
+    )
+    reset_mode.add_argument(
+        "--hard",
+        dest="hard",
+        action="store_true",
+        default=False,
+        help="Discard index and working-tree changes (git reset --hard).",
+    )
+    p_reset.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="Skip fetching when base is a remote branch (default: fetch).",
+    )
+
     p_merge = sub.add_parser(
         "merge",
         help="Rebase onto this worktree's base, then merge into the base worktree",
@@ -308,6 +337,31 @@ def cmd_rebase(*, fetch: bool) -> int:
         return 2
     # Inherit stdio so conflicts/editors behave like plain `git rebase`.
     return gitops.exec_rebase(base, cwd)
+
+
+def cmd_reset(*, mode: str = "mixed", fetch: bool) -> int:
+    """Reset the current branch to this worktree's base."""
+    if mode not in ("soft", "mixed", "hard"):
+        print(f"error: invalid reset mode '{mode}' (expected soft|mixed|hard)", file=sys.stderr)
+        return 2
+    cwd = _cwd()
+    try:
+        gitops.repo_root(cwd)
+    except gitops.GitError as exc:
+        print(f"error: not a git repository: {exc}", file=sys.stderr)
+        return 2
+    try:
+        base = base_store.get_base(cwd)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        gitops.ensure_fresh_base(base, cwd, fetch=fetch)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    # Inherit stdio so output behaves like plain `git reset`.
+    return gitops.exec_reset(mode, base, cwd)
 
 
 def _default_message(subjects: Sequence[str]) -> str:
@@ -765,6 +819,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_new(args.branch, args.base, fetch=not args.no_fetch)
     if args.command == "rebase":
         return cmd_rebase(fetch=not args.no_fetch)
+    if args.command == "reset":
+        if args.soft:
+            reset_mode = "soft"
+        elif args.hard:
+            reset_mode = "hard"
+        else:
+            reset_mode = "mixed"
+        return cmd_reset(mode=reset_mode, fetch=not args.no_fetch)
     if args.command == "merge":
         if args.squash and args.no_ff:
             print("error: --squash and --no-ff are mutually exclusive", file=sys.stderr)

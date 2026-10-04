@@ -37,6 +37,10 @@ mr base default reset               # back to origin/<default-branch>
 mr rebase                           # git rebase onto this worktree's base (fetches if remote)
 mr rebase --no-fetch                # skip fetch (offline)
 
+mr reset                            # git reset --mixed onto this worktree's base (fetches if remote)
+mr reset --soft / --mixed / --hard  # reset mode (default: --mixed)
+mr reset --no-fetch                 # skip fetch (offline)
+
 mr merge                            # rebase onto base, then squash-merge into the base worktree
 mr merge -m "ship it"               # custom squash/merge message
 mr merge --no-ff                    # regular merge commit instead of squash
@@ -67,6 +71,9 @@ Notes:
   or `git checkout -b` refuses (e.g. uncommitted changes would be overwritten).
 - `mr rebase` rebases the current branch onto this worktree's base with stdio
   inherited, so conflicts/editors behave like plain `git rebase`.
+- `mr reset` resets the current branch pointer to this worktree's base with
+  stdio inherited (`--mixed` by default, `--soft`/`--hard` optional;
+  `--hard` discards index and working-tree changes).
 - Remote bases (`origin/<branch>`) are refreshed with `git fetch <remote> <branch>`
   before use; fetch failure hard-fails. Branch names with slashes like
   `feat/foo` are never mistaken for a remote.

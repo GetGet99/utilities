@@ -357,6 +357,16 @@ def reset_to(ref: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     return run_git(["reset", ref], cwd, check=False)
 
 
+def exec_reset(mode: str, ref: str, cwd: Path) -> int:
+    """Inheriting ``git reset --<mode> <ref>`` so output behaves like git.
+
+    *mode* must be one of ``soft``, ``mixed``, or ``hard``.
+    Returns the git exit code.
+    """
+    result = run_git(["reset", f"--{mode}", ref], cwd, check=False, capture=False)
+    return result.returncode
+
+
 def push(remote: str, branch: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     """Captured ``git push <remote> <branch>``."""
     return run_git(["push", remote, branch], cwd, check=False)
