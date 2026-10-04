@@ -19,7 +19,7 @@ This provides `mr` and `mr-diff` on `PATH`.
 ## `mr` — branch + base helper
 
 ```sh
-mr new my-feature                  # from origin/<default-branch>, then switch to it
+mr new my-feature                  # from <effective-default>, then switch to it
 mr new my-feature main              # from local base
 mr new my-feature origin/main       # from remote base (fetches origin/main first)
 mr new my-feature origin/main --no-fetch   # skip fetch (offline)
@@ -27,15 +27,28 @@ mr new my-feature origin/main --no-fetch   # skip fetch (offline)
 mr base                             # print this worktree's base
 mr base set main                    # change base (fetches if remote)
 mr base set origin/main --no-fetch
-mr base reset                       # back to origin/<default-branch>
+mr base reset                       # back to the effective default
+
+mr base default                     # print repo-level default (or origin/<default-branch>)
+mr base default set develop         # change repo default for all worktrees (fetches if remote)
+mr base default set origin/develop --no-fetch
+mr base default reset               # back to origin/<default-branch>
+
+mr rebase                           # git rebase onto this worktree's base (fetches if remote)
+mr rebase --no-fetch                # skip fetch (offline)
 ```
 
 Notes:
 
 - Base is **per-worktree** (stored at `<worktree-git-dir>/mr-base`), shared by
   `mr` and `mr-diff`. Two worktrees of the same repo can have different bases.
+- Repo default is **shared by all worktrees** (stored at `<common-git-dir>/mr-default`).
+  When set, `mr new` without a base and `mr base reset` use it instead of
+  `origin/<default-branch>`.
 - `mr new` blocks when: the branch already exists, the base doesn't resolve,
   or `git checkout -b` refuses (e.g. uncommitted changes would be overwritten).
+- `mr rebase` rebases the current branch onto this worktree's base with stdio
+  inherited, so conflicts/editors behave like plain `git rebase`.
 - Remote bases (`origin/<branch>`) are refreshed with `git fetch <remote> <branch>`
   before use; fetch failure hard-fails. Branch names with slashes like
   `feat/foo` are never mistaken for a remote.

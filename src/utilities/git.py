@@ -185,3 +185,12 @@ def exec_diff_patch(merge_base_sha: str, cwd: Path, path: str | None = None) -> 
         args += ["--", path]
     result = run_git(args, cwd, check=False, capture=False)
     return result.returncode
+
+
+def exec_rebase(base: str, cwd: Path) -> int:
+    """Inheriting ``git rebase <base>`` so conflicts/editors behave like git.
+
+    Returns the git exit code.
+    """
+    result = run_git(["rebase", base], cwd, check=False, capture=False)
+    return result.returncode
