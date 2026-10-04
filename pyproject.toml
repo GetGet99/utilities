@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "utilities"
+version = "0.1.0"
+description = "Personal CLI helpers (mr, mr-diff, ...)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+mr = "utilities.cli_mr:main"
+mr-diff = "utilities.cli_mr_diff:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.mypy]
+strict = true
+explicit_package_bases = true
+mypy_path = "src"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.8", "mypy>=1.0"]
