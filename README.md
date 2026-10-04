@@ -72,7 +72,7 @@ Notes:
   base is a remote ref. The feature branch is realigned onto the base
   afterwards (never auto-deleted).
 
-## `mr-diff` — GitLab-style diff vs base (committed + staged + unstaged)
+## `mr-diff` — MR-style/PR-style diff vs base (committed + staged + unstaged)
 
 ```sh
 mr-diff list               # name-status of everything changed since merge-base
