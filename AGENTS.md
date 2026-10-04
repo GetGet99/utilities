@@ -19,7 +19,7 @@ tests/
   conftest.py           # tmp git repo + origin fixtures (use them, don't hand-roll)
   test_<name>.py
 AGENTS.md               # this file
-README.md               # user-facing usage
+README.md               # minimal landing page (see §9, not a usage reference)
 ```
 
 ## 2. Hard constraints
@@ -63,7 +63,8 @@ README.md               # user-facing usage
    (copy the closest existing script), register `<name>` in
    `completion.SUPPORTED_PROGRAMS`, and extend `tests/test_completion.py`.
    The `completions/*` package-data glob already covers the new files.
-6. Update `README.md` usage section.
+6. Update `README.md` only if §9 requires it (new/removed CLI, install
+   change). Never add flags, examples, or behavior notes to `README.md`.
 
 ## 4. fetch semantics (shared by `mr new`, future `mr rebase`)
 
@@ -124,4 +125,20 @@ Style: `ruff` defaults (`line-length = 100`, `target-version = py39`),
 
 - Conventional commits: `feat(mr): ...`, `fix(mr-diff): ...`, `chore(...)`, `docs(...)`.
 - One logical change per commit; update tests + README in the same commit as behavior.
+  README changes follow §9 (most behavior changes need no README edit).
 - Do not commit `.venv/`, `*.egg-info/`, `__pycache__/`, or `mr-base` files.
+
+## 9. README policy (keep it minimal)
+
+`README.md` is a landing page for first-time visitors, not a manual.
+Keep it under ~50 lines: what it is, install, 4-line quickstart,
+where to find full help (`--help`), completion one-liner, `AGENTS.md` pointer.
+
+- Update `README.md` ONLY when: adding/removing a CLI, changing install
+  steps, or changing completion setup. Nothing else qualifies.
+- NEVER in `README.md`: exhaustive flag lists, per-subcommand examples,
+  edge cases, error semantics, storage paths, fetch rules, or behavior
+  notes. That detail belongs in `--help` text, code docstrings, `AGENTS.md`
+  (§4–§6), or tests — all of which stay in sync with the code.
+- New flags/subcommands MUST update `--help` + completion scripts + tests
+  in the same commit, and MUST NOT touch `README.md`.
