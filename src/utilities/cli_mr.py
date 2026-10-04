@@ -268,7 +268,9 @@ def cmd_new(branch: str, base: str | None, *, fetch: bool) -> int:
     except gitops.GitError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    result = gitops.run_git(["checkout", "-b", branch, resolved_base], cwd, check=False)
+    result = gitops.run_git(
+        ["checkout", "--no-track", "-b", branch, resolved_base], cwd, check=False
+    )
     if result.returncode != 0:
         # Let git's own message (e.g. "would be overwritten by checkout") go to stderr.
         if result.stderr:

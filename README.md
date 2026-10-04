@@ -74,6 +74,10 @@ Notes:
   `origin/<default-branch>`.
 - `mr new` blocks when: the branch already exists, the base doesn't resolve,
   or `git checkout -b` refuses (e.g. uncommitted changes would be overwritten).
+  New branches are created with `--no-track` (no upstream, VSCode-style), so
+  the first `git push` suggests `git push --set-upstream origin <branch>`.
+  Branches created before this fix may track the base (`branch.<name>.merge`
+  set) — run `git branch --unset-upstream` once to get the same behavior.
 - `mr rebase` rebases the current branch onto this worktree's base with stdio
   inherited, so conflicts/editors behave like plain `git rebase`.
 - `mr rebase --onto <new-base>` retargets a stacked branch via

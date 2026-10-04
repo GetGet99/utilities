@@ -49,6 +49,42 @@ def _subjects(ref_range: str, cwd: Path) -> list[str]:
     return [line for line in out.splitlines() if line]
 
 
+def _upstream(cwd: Path) -> str | None:
+    proc = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        cwd=str(cwd),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    name = proc.stdout.strip()
+    return name or None
+
+
+def test_onto_preserves_upstream_config(git_repo: Path) -> None:
+    """`--onto` replays commits but never touches branch upstream tracking.
+
+    A branch created without upstream (VSCode-style, and now `mr new`) still
+    has no upstream after retargeting, so `git push` keeps suggesting
+    `push --set-upstream origin <branch>`. The `old-base..HEAD` range comes
+    from the mr-base pointer, not from `@{u}`, so upstream config cannot
+    change what gets replayed.
+    """
+    from utilities.cli_mr import cmd_new
+
+    assert cmd_new("feature", "origin/main", fetch=False) == 0
+    assert _upstream(git_repo) is None
+    _commit(git_repo, "f.txt", "f\n", "feat")
+    _git(["branch", "new-base", "main"], git_repo)
+
+    assert cmd_rebase_onto("new-base", fetch=False) == 0
+    assert _upstream(git_repo) is None
+    assert base_store.get_base(git_repo) == "new-base"
+    assert _subjects("new-base..HEAD", git_repo) == ["feat"]
+
+
 def test_onto_happy_path_replays_only_new_commits(git_repo: Path) -> None:
     _git(["checkout", "-b", "feature1", "main"], git_repo)
     _commit(git_repo, "f1.txt", "f1\n", "f1.1")

@@ -23,6 +23,39 @@ def _git(args: list[str], cwd: Path) -> None:
     subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True)
 
 
+def _upstream(cwd: Path) -> str | None:
+    proc = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        cwd=str(cwd),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    name = proc.stdout.strip()
+    return name or None
+
+
+def test_mr_new_from_remote_base_sets_no_upstream(git_repo: Path) -> None:
+    """`mr new` from a remote base must not track the base (VSCode-style).
+
+    Regression: `git checkout -b <branch> origin/main` auto-sets upstream to
+    origin/main (branch.autoSetupMerge), so plain `git push` failed with an
+    "upstream does not match" error suggesting `push origin HEAD:main` — which
+    could push to the wrong branch. New branches must have no upstream so
+    `git push` suggests `push --set-upstream origin <branch>` instead.
+    """
+    assert cmd_new("feature-no-track", "origin/main", fetch=False) == 0
+    assert _upstream(git_repo) is None
+
+
+def test_mr_new_from_default_remote_base_sets_no_upstream(git_repo: Path) -> None:
+    assert cmd_new("feature-default-no-track", None, fetch=False) == 0
+    assert base_store.get_base(git_repo) == "origin/main"
+    assert _upstream(git_repo) is None
+
+
 def test_mr_new_creates_branch_from_default_base(git_repo: Path) -> None:
     assert cmd_new("feature-a", None, fetch=False) == 0
     assert gitops_current_branch(git_repo) == "feature-a"
