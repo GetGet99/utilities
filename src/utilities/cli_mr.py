@@ -10,7 +10,13 @@ from pathlib import Path
 from utilities import base_store, config_store
 from utilities import git as gitops
 from utilities import glab as glabops
-from utilities.completion import handle_print_completion
+from utilities.completion import (
+    completion_status,
+    detect_shell,
+    handle_print_completion,
+    install_completion,
+    uninstall_completion,
+)
 
 
 def _cwd() -> Path:
@@ -252,6 +258,38 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Config key to drop (default: drop all global config).",
     )
+
+    p_completion = sub.add_parser("completion", help="Install or remove shell completion")
+    comp_sub = p_completion.add_subparsers(dest="completion_command", required=False)
+    p_cinstall = comp_sub.add_parser(
+        "install",
+        help="Append mr + mr-diff completion to your shell rc file",
+    )
+    p_cinstall.add_argument(
+        "--shell",
+        dest="shells",
+        action="append",
+        choices=["bash", "zsh"],
+        default=None,
+        help="Shell to configure (repeatable; default: current $SHELL).",
+    )
+    p_cinstall.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would change without writing.",
+    )
+    p_cuninstall = comp_sub.add_parser(
+        "uninstall", help="Remove the managed completion block again"
+    )
+    p_cuninstall.add_argument(
+        "--shell",
+        dest="shells",
+        action="append",
+        choices=["bash", "zsh"],
+        default=None,
+        help="Shell to clean (repeatable; default: current $SHELL).",
+    )
+    comp_sub.add_parser("status", help="Show completion install state per shell")
     return parser
 
 
@@ -1027,6 +1065,40 @@ def cmd_config_reset(key: str | None) -> int:
     return 0
 
 
+def _resolve_shells(shells: Sequence[str] | None) -> list[str] | None:
+    """Deduplicated shells, or the current ``$SHELL``; None (+stderr) if unknown."""
+    if shells:
+        resolved: list[str] = []
+        for shell in shells:
+            if shell not in resolved:
+                resolved.append(shell)
+        return resolved
+    detected = detect_shell()
+    if detected is None:
+        print(
+            "error: cannot detect shell from $SHELL — pass --shell bash|zsh",
+            file=sys.stderr,
+        )
+        return None
+    return [detected]
+
+
+def cmd_completion_install(shells: Sequence[str] | None, *, dry_run: bool = False) -> int:
+    """Install mr + mr-diff completion into the rc file(s)."""
+    resolved = _resolve_shells(shells)
+    if resolved is None:
+        return 2
+    return install_completion(resolved, dry_run=dry_run)
+
+
+def cmd_completion_uninstall(shells: Sequence[str] | None) -> int:
+    """Remove the managed completion block from the rc file(s)."""
+    resolved = _resolve_shells(shells)
+    if resolved is None:
+        return 2
+    return uninstall_completion(resolved)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     completed = handle_print_completion("mr", argv)
     if completed is not None:
@@ -1099,6 +1171,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.config_command == "reset":
             return cmd_config_reset(args.key)
         return cmd_config_list()
+    if args.command == "completion":
+        if args.completion_command == "install":
+            return cmd_completion_install(args.shells, dry_run=args.dry_run)
+        if args.completion_command == "uninstall":
+            return cmd_completion_uninstall(args.shells)
+        return completion_status()
     if args.command == "base":
         if args.base_command == "set":
             return cmd_base_set(args.base, fetch=not args.no_fetch)

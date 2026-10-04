@@ -19,7 +19,18 @@ This provides `mr` and `mr-diff` on `PATH`.
 ## Shell completion
 
 `mr` and `mr-diff` ship tab-completion for bash and zsh (subcommands,
-flags, git branches, review files, config keys/values):
+flags, git branches, review files, config keys/values). Easiest setup —
+appends a managed block to your rc file (idempotent, backs up first):
+
+```sh
+mr completion install              # current shell (from $SHELL)
+mr completion install --shell zsh  # or pick explicitly (repeatable)
+mr completion status               # check what's installed where
+mr completion uninstall            # remove the managed block again
+```
+
+Restart your shell (or open a new tab) afterwards. Prefer manual setup?
+These two lines are all the installer writes:
 
 ```sh
 # zsh (~/.zshrc, after compinit)

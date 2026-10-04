@@ -17,6 +17,9 @@ mr-diff = "utilities.cli_mr_diff:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+utilities = ["completions/*"]
+
 [tool.ruff]
 target-version = "py39"
 line-length = 100
