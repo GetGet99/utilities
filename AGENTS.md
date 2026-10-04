@@ -66,11 +66,17 @@ README.md               # user-facing usage
 
 ## 5. `mr-diff` semantics
 
-- GitLab-style = diff against `git merge-base <base> HEAD`, NOT literal `base...HEAD`,
+- Review scope = diff against `git merge-base <base> HEAD`, NOT literal `base...HEAD`,
   so staged + unstaged working-tree changes are included:
-  `git diff <merge-base>` / `git diff --name-status <merge-base>`.
-- Untracked files are hidden (GitLab parity) with a stderr hint; never `git add` them.
-- `file` subcommand inherits stdio (pager/color like git); `list` captures and prints.
+  `git diff --find-renames <merge-base>` / `--name-status` / `--name-only`.
+- Untracked (non-ignored) files are ALWAYS included as new files (`A <path>`);
+  never `git add` them. `file` renders them via
+  `git diff --no-index -- /dev/null <path>` (exit 1 normalized to 0).
+  Ignored files stay hidden via `--exclude-standard`.
+- `list` merges tracked + untracked rows and sorts by final path
+  (rename destination for `R` rows). `# base:` goes to stderr; stdout is parseable.
+- `file` takes a single file only; directories are rejected (exit 2).
+  `file` inherits stdio (pager/color like git); `list` captures and prints.
 
 ## 6. Quality gates (run before every commit)
 

@@ -72,7 +72,7 @@ Notes:
   base is a remote ref. The feature branch is realigned onto the base
   afterwards (never auto-deleted).
 
-## `mr-diff` — MR-style/PR-style diff vs base (committed + staged + unstaged)
+## `mr-diff` — MR-style/PR-style diff vs base (committed + staged + unstaged + untracked)
 
 ```sh
 mr-diff list               # name-status of everything changed since merge-base
@@ -80,7 +80,6 @@ mr-diff list --name-only  # paths only
 mr-diff file path/to/file # patch for one file (pager/color like git)
 ```
 
-Untracked files are hidden (GitLab parity) with a stderr hint.
 
 ## Future CLIs
 

@@ -1,13 +1,13 @@
-"""``mr-diff`` CLI: GitLab-style three-dot diff vs the worktree's base.
+"""``mr-diff`` CLI: full review-scope diff vs the worktree's base.
 
 Shows committed-on-branch changes PLUS staged/unstaged working-tree changes
-by diffing against ``git merge-base <base> HEAD``.
+PLUS untracked (non-ignored) files as new files, by diffing against
+``git merge-base <base> HEAD`` with rename detection forced on.
 """
 
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -22,7 +22,7 @@ def _cwd() -> Path:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="mr-diff", description="GitLab-style diff of current branch vs base"
+        prog="mr-diff", description="Review-scope diff of current branch vs base"
     )
     sub = parser.add_subparsers(dest="command", required=True)
     p_list = sub.add_parser("list", help="List files changed vs base")
@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--name-only", action="store_true", help="Print paths only (default: name-status)."
     )
     p_file = sub.add_parser("file", help="Show diff for one file vs base")
-    p_file.add_argument("path", help="Path to file (repo-relative or absolute)")
+    p_file.add_argument("path", help="Path to a file (repo-relative or absolute)")
     return parser
 
 
@@ -54,29 +54,39 @@ def _resolve_merge_base(cwd: Path) -> tuple[str, str] | None:
     return (base, mb)
 
 
+def _sort_key(line: str) -> str:
+    """Sort key for a ``list`` row: the final path (rename destination for ``R``)."""
+    return line.split("\t")[-1] if "\t" in line else line
+
+
 def cmd_list(*, name_only: bool) -> int:
     cwd = _cwd()
     resolved = _resolve_merge_base(cwd)
     if resolved is None:
         return 2
     base, mb = resolved
-    flag = "--name-only" if name_only else "--name-status"
-    result = gitops.run_git(["diff", flag, mb], cwd, check=False)
-    if result.returncode != 0:
-        if result.stderr:
-            print(result.stderr.rstrip(), file=sys.stderr)
-        return result.returncode
-    if result.stdout:
-        sys.stdout.write(result.stdout if result.stdout.endswith("\n") else result.stdout + "\n")
+    try:
+        if name_only:
+            tracked = gitops.diff_name_only(mb, cwd)
+        else:
+            tracked = gitops.diff_name_status(mb, cwd)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    rows = [line for line in (line.strip() for line in tracked.splitlines()) if line]
+    try:
+        untracked = gitops.list_untracked(cwd)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if name_only:
+        rows.extend(untracked)
+    else:
+        rows.extend(f"A\t{path}" for path in untracked)
+    for row in sorted(rows, key=_sort_key):
+        sys.stdout.write(row + "\n")
     short = mb[:12]
     print(f"# base: {base} (merge-base {short})", file=sys.stderr)
-    untracked = gitops.run_git(["ls-files", "--others", "--exclude-standard"], cwd, check=False)
-    if untracked.returncode == 0 and untracked.stdout.strip():
-        count = len(untracked.stdout.splitlines())
-        print(
-            f"# note: {count} untracked file(s) hidden (GitLab parity) — see git status",
-            file=sys.stderr,
-        )
     return 0
 
 
@@ -86,10 +96,19 @@ def cmd_file(path: str) -> int:
     if resolved is None:
         return 2
     base, mb = resolved
+    candidate = Path(path) if Path(path).is_absolute() else cwd / path
+    try:
+        if candidate.is_dir():
+            print(f"error: '{path}' is a directory — pass a single file", file=sys.stderr)
+            return 2
+    except OSError as exc:
+        print(f"error: cannot stat '{path}': {exc}", file=sys.stderr)
+        return 2
     print(f"# base: {base} (merge-base {mb[:12]})", file=sys.stderr)
     # Inherit stdio so git pager/color behave like plain `git diff`.
-    completed = subprocess.run(["git", "diff", mb, "--", path], cwd=str(cwd), check=False)
-    return completed.returncode
+    if gitops.is_untracked(path, cwd):
+        return gitops.exec_untracked_patch(path, cwd)
+    return gitops.exec_diff_patch(mb, cwd, path)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

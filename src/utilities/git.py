@@ -170,9 +170,31 @@ def current_branch(cwd: Path) -> str | None:
 
 
 def diff_name_status(merge_base_sha: str, cwd: Path) -> str:
-    """Captured ``git diff --name-status <mb>`` (staged+unstaged+committed vs mb)."""
-    result = run_git(["diff", "--name-status", merge_base_sha], cwd)
+    """Captured ``git diff --name-status <mb>`` (staged+unstaged+committed vs mb).
+
+    Rename detection is forced on so ``R`` rows appear regardless of the
+    user's ``diff.renames`` config.
+    """
+    result = run_git(["diff", "--find-renames", "--name-status", merge_base_sha], cwd)
     return result.stdout
+
+
+def diff_name_only(merge_base_sha: str, cwd: Path) -> str:
+    """Captured ``git diff --name-only <mb>`` (paths only, renames detected)."""
+    result = run_git(["diff", "--find-renames", "--name-only", merge_base_sha], cwd)
+    return result.stdout
+
+
+def list_untracked(cwd: Path) -> list[str]:
+    """Repo-relative paths of untracked, non-ignored files (``git ls-files``)."""
+    result = run_git(["ls-files", "--others", "--exclude-standard"], cwd)
+    return [line for line in (line.strip() for line in result.stdout.splitlines()) if line]
+
+
+def is_untracked(path: str, cwd: Path) -> bool:
+    """True when *path* matches an untracked, non-ignored file."""
+    result = run_git(["ls-files", "--others", "--exclude-standard", "--", path], cwd, check=False)
+    return result.returncode == 0 and bool(result.stdout.strip())
 
 
 def exec_diff_patch(merge_base_sha: str, cwd: Path, path: str | None = None) -> int:
@@ -180,11 +202,24 @@ def exec_diff_patch(merge_base_sha: str, cwd: Path, path: str | None = None) -> 
 
     Returns the git exit code.
     """
-    args: list[str] = ["diff", merge_base_sha]
+    args: list[str] = ["diff", "--find-renames", merge_base_sha]
     if path is not None:
         args += ["--", path]
     result = run_git(args, cwd, check=False, capture=False)
     return result.returncode
+
+
+def exec_untracked_patch(path: str, cwd: Path) -> int:
+    """Inheriting full-add patch for an untracked file via ``--no-index``.
+
+    Shows ``/dev/null`` -> *path* so pager/color behave like git.
+    ``git diff --no-index`` exits 1 when differences exist, which is the
+    success case here, so 0 and 1 both map to 0.
+    """
+    result = run_git(
+        ["diff", "--no-index", "--", "/dev/null", path], cwd, check=False, capture=False
+    )
+    return 0 if result.returncode in (0, 1) else result.returncode
 
 
 def exec_rebase(base: str, cwd: Path) -> int:
