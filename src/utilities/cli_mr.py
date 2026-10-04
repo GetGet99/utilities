@@ -9,6 +9,7 @@ from pathlib import Path
 
 from utilities import base_store, config_store
 from utilities import git as gitops
+from utilities import glab as glabops
 
 
 def _cwd() -> Path:
@@ -97,6 +98,84 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-fetch",
         action="store_true",
         help="Skip fetching when base is a remote branch (default: fetch).",
+    )
+
+    p_publish = sub.add_parser(
+        "publish",
+        help="Push the current branch and open a GitLab merge request via glab",
+    )
+    p_publish.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="Skip fetching when base is a remote branch (default: fetch).",
+    )
+    p_publish.add_argument(
+        "--no-push",
+        dest="no_push",
+        action="store_true",
+        default=False,
+        help="Skip pushing; assume the branch is already on the remote.",
+    )
+    p_publish.add_argument(
+        "--fill",
+        action="store_true",
+        help="Fill MR title/description from commits (passed to glab).",
+    )
+    p_publish.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip submission confirmation prompt (passed to glab).",
+    )
+    p_publish.add_argument(
+        "--draft",
+        action="store_true",
+        help="Mark merge request as a draft (passed to glab).",
+    )
+    p_publish.add_argument(
+        "-t",
+        "--title",
+        default=None,
+        help="MR title (passed to glab).",
+    )
+    p_publish.add_argument(
+        "-d",
+        "--description",
+        default=None,
+        help="MR description (passed to glab).",
+    )
+    p_publish.add_argument(
+        "-l",
+        "--label",
+        dest="labels",
+        action="append",
+        default=None,
+        help="Add label (repeatable, passed to glab).",
+    )
+    p_publish.add_argument(
+        "-a",
+        "--assignee",
+        dest="assignees",
+        action="append",
+        default=None,
+        help="Assign user (repeatable, passed to glab).",
+    )
+    p_publish.add_argument(
+        "--reviewer",
+        dest="reviewers",
+        action="append",
+        default=None,
+        help="Request review from user (repeatable, passed to glab).",
+    )
+    p_publish.add_argument(
+        "--remove-source-branch",
+        action="store_true",
+        help="Remove source branch on merge (passed to glab).",
+    )
+    p_publish.add_argument(
+        "extra",
+        nargs=argparse.REMAINDER,
+        help="Extra args forwarded verbatim to 'glab mr create' after '--'.",
     )
 
     p_config = sub.add_parser("config", help="Print or change global mr behavior defaults")
@@ -524,6 +603,131 @@ def cmd_merge(
     return 0
 
 
+def cmd_publish(
+    *,
+    fetch: bool,
+    push: bool,
+    fill: bool,
+    yes: bool,
+    draft: bool,
+    title: str | None,
+    description: str | None,
+    labels: Sequence[str] | None,
+    assignees: Sequence[str] | None,
+    reviewers: Sequence[str] | None,
+    remove_source_branch: bool,
+    extra: Sequence[str] | None,
+) -> int:
+    """Push the current branch (unless skipped) and open a GitLab MR via glab."""
+    cwd = _cwd()
+    try:
+        gitops.repo_root(cwd)
+    except gitops.GitError as exc:
+        print(f"error: not a git repository: {exc}", file=sys.stderr)
+        return 2
+    current = gitops.current_branch(cwd)
+    if current is None:
+        print("error: detached HEAD — checkout a branch first", file=sys.stderr)
+        return 2
+    try:
+        base = base_store.get_base(cwd)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    parsed = gitops.parse_remote_ref(base, cwd)
+    if parsed is None:
+        print(
+            f"error: base '{base}' is not a remote branch "
+            "— set one first (e.g. mr base set origin/main)",
+            file=sys.stderr,
+        )
+        return 2
+    remote, target = parsed
+    if current == target:
+        print(
+            f"error: already on base branch '{current}' — there is nothing to publish",
+            file=sys.stderr,
+        )
+        return 2
+
+    op = gitops.operation_in_progress(cwd)
+    if op is not None:
+        print(
+            f"error: '{current}' worktree is mid-{op} — resolve it first",
+            file=sys.stderr,
+        )
+        return 2
+    if not gitops.is_clean(cwd):
+        print("error: working tree has uncommitted changes", file=sys.stderr)
+        return 2
+
+    try:
+        gitops.ensure_fresh_base(base, cwd, fetch=fetch)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if glabops.find_glab() is None:
+        print(f"error: glab not found on PATH ({glabops.INSTALL_HINT})", file=sys.stderr)
+        return 2
+
+    if push:
+        upstream = gitops.upstream_ref(cwd)
+        if upstream is None:
+            print(f"Pushing '{current}' to {remote}...")
+            pr = gitops.push_set_upstream(remote, current, cwd)
+            if pr.returncode != 0:
+                if pr.stderr:
+                    print(pr.stderr.rstrip(), file=sys.stderr)
+                print(
+                    f"error: failed to push '{current}' to '{remote}'",
+                    file=sys.stderr,
+                )
+                return pr.returncode
+            print(f"Pushed '{current}' to {remote} (upstream set).")
+        else:
+            try:
+                ahead = gitops.rev_list_count(f"{upstream}..HEAD", cwd)
+            except gitops.GitError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
+            if ahead > 0:
+                print(f"Pushing {ahead} commit(s) to {upstream}...")
+                pr = gitops.push_current(cwd)
+                if pr.returncode != 0:
+                    if pr.stderr:
+                        print(pr.stderr.rstrip(), file=sys.stderr)
+                    print(
+                        f"error: failed to push '{current}' to '{upstream}'",
+                        file=sys.stderr,
+                    )
+                    return pr.returncode
+                print(f"Pushed '{current}' to {upstream}.")
+            else:
+                print(f"Branch '{current}' already pushed to {upstream}.")
+    else:
+        print(f"Skipped push (--no-push) — assuming '{current}' is on {remote}.")
+
+    forwarded = list(extra or [])
+    if forwarded and forwarded[0] == "--":
+        forwarded = forwarded[1:]
+    glab_args = glabops.build_create_args(
+        target,
+        fill=fill,
+        yes=yes,
+        draft=draft,
+        title=title,
+        description=description,
+        labels=labels,
+        assignees=assignees,
+        reviewers=reviewers,
+        remove_source_branch=remove_source_branch,
+        extra=forwarded,
+    )
+    # Inherit stdio so glab's interactive prompts/editors behave like plain `glab`.
+    return glabops.exec_create(glab_args, cwd)
+
+
 def cmd_config_list() -> int:
     values = config_store.read_config()
     for key in sorted(config_store.ALLOWED):
@@ -585,6 +789,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             strategy=strategy,
             push=push,
             fetch=not args.no_fetch,
+        )
+    if args.command == "publish":
+        return cmd_publish(
+            fetch=not args.no_fetch,
+            push=not args.no_push,
+            fill=args.fill,
+            yes=args.yes,
+            draft=args.draft,
+            title=args.title,
+            description=args.description,
+            labels=args.labels,
+            assignees=args.assignees,
+            reviewers=args.reviewers,
+            remove_source_branch=args.remove_source_branch,
+            extra=args.extra,
         )
     if args.command == "config":
         if args.config_command == "set":

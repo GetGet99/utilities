@@ -360,3 +360,26 @@ def reset_to(ref: str, cwd: Path) -> subprocess.CompletedProcess[str]:
 def push(remote: str, branch: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     """Captured ``git push <remote> <branch>``."""
     return run_git(["push", remote, branch], cwd, check=False)
+
+
+def upstream_ref(cwd: Path) -> str | None:
+    """Upstream of HEAD (e.g. ``origin/feature``), or None when unset."""
+    result = run_git(
+        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        cwd,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    name = result.stdout.strip()
+    return name or None
+
+
+def push_set_upstream(remote: str, branch: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Captured ``git push -u <remote> <branch>`` (first publish)."""
+    return run_git(["push", "-u", remote, branch], cwd, check=False)
+
+
+def push_current(cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Captured plain ``git push`` (upstream already set)."""
+    return run_git(["push"], cwd, check=False)

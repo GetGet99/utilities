@@ -47,6 +47,13 @@ mr config list                      # global behavior defaults
 mr config set merge.strategy merge  # default merge mode: squash | merge
 mr config set merge.push never      # default push policy: auto | always | never
 mr config reset [key]               # drop one key (or all global config)
+
+mr publish                          # push branch + `glab mr create --target-branch <base>`
+mr publish --no-push                # skip push (branch already on remote)
+mr publish --no-fetch               # skip fetch (offline)
+mr publish --fill --yes --draft     # passthrough to glab
+mr publish -t "Title" -d "Body" -l bug --assignee alice --reviewer bob
+mr publish -- --squash-before-merge # extra args forwarded verbatim to glab
 ```
 
 Notes:
@@ -71,6 +78,14 @@ Notes:
   bases are used as-is. Push policy is `auto` by default: push only when the
   base is a remote ref. The feature branch is realigned onto the base
   afterwards (never auto-deleted).
+- `mr publish` requires the base to be a remote branch (`origin/main`); a local
+  base fails. The `origin/` prefix is stripped before calling
+  `glab mr create --target-branch <branch>`, which runs with inherited stdio
+  so interactive prompts/editors work. Push is automatic: `git push -u <remote>`
+  when no upstream exists, plain `git push` when ahead, skipped when in sync
+  (`--no-push` skips entirely). Dirty trees, detached HEAD, and mid-operation
+  states are blocked. `glab` is an optional external dependency (not installed
+  with this project); when missing, `mr publish` fails with an install hint.
 
 ## `mr-diff` — MR-style/PR-style diff vs base (committed + staged + unstaged + untracked)
 
