@@ -37,6 +37,7 @@ def test_render_mr_zsh_has_subcommands_and_branch_helper() -> None:
         "base",
         "rebase",
         "reset",
+        "squash",
         "merge",
         "publish",
         "config",
@@ -57,6 +58,8 @@ def test_render_mr_bash_registers_completion() -> None:
     assert "git branch" in script
     assert "--onto" in script
     assert "merge.push" in script
+    assert "squash" in script
+    assert "--message" in script
 
 
 def test_render_mr_diff_covers_list_and_review_files() -> None:

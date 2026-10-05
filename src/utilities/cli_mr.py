@@ -121,6 +121,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip fetching when base is a remote branch (default: fetch).",
     )
 
+    p_squash = sub.add_parser("squash", help="Squash this branch's commits into a single commit")
+    p_squash.add_argument(
+        "-m",
+        "--message",
+        default=None,
+        help="Squashed commit message (default: message of HEAD).",
+    )
+    p_squash.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="Skip fetching when base is a remote branch (default: fetch).",
+    )
+
     p_merge = sub.add_parser(
         "merge",
         help="Rebase onto this worktree's base, then merge into the base worktree",
@@ -615,6 +628,79 @@ def cmd_reset(*, mode: str = "mixed", fetch: bool) -> int:
         return 2
     # Inherit stdio so output behaves like plain `git reset`.
     return gitops.exec_reset(mode, base, cwd)
+
+
+def cmd_squash(*, message: str | None, fetch: bool) -> int:
+    """Squash ``<base>..HEAD`` into a single commit on top of the merge-base."""
+    cwd = _cwd()
+    try:
+        gitops.repo_root(cwd)
+    except gitops.GitError as exc:
+        print(f"error: not a git repository: {exc}", file=sys.stderr)
+        return 2
+    current = gitops.current_branch(cwd)
+    if current is None:
+        print("error: detached HEAD — checkout a branch first", file=sys.stderr)
+        return 2
+    try:
+        base = base_store.get_base(cwd)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    op = gitops.operation_in_progress(cwd)
+    if op is not None:
+        print(f"error: '{current}' worktree is mid-{op} — resolve it first", file=sys.stderr)
+        return 2
+    if not gitops.is_clean(cwd):
+        print("error: working tree has uncommitted changes", file=sys.stderr)
+        return 2
+    try:
+        gitops.ensure_fresh_base(base, cwd, fetch=fetch)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        mb = gitops.merge_base(base, cwd)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        to_squash = gitops.rev_list_count(f"{base}..HEAD", cwd)
+    except gitops.GitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if to_squash == 0:
+        print(f"Nothing to squash — '{current}' has no commits beyond {base}.")
+        return 0
+    if message is not None:
+        msg = message
+    else:
+        if to_squash == 1:
+            print(f"Nothing to squash — '{current}' is already a single commit.")
+            return 0
+        try:
+            msg = gitops.last_commit_message(cwd)
+        except gitops.GitError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    rs = gitops.reset_soft_to(mb, cwd)
+    if rs.returncode != 0:
+        if rs.stderr:
+            print(rs.stderr.rstrip(), file=sys.stderr)
+        return rs.returncode
+    co = gitops.commit(msg, cwd)
+    if co.returncode != 0:
+        if co.stderr:
+            print(co.stderr.rstrip(), file=sys.stderr)
+        print(
+            "error: commit failed after soft reset. Complete it yourself with:",
+            file=sys.stderr,
+        )
+        print("  git commit   # to conclude the squash", file=sys.stderr)
+        print("  git reset --hard ORIG_HEAD   # to restore the original commits", file=sys.stderr)
+        return co.returncode
+    print(f"Squashed {to_squash} commit(s) into one on '{current}'.")
+    return 0
 
 
 def _default_message(subjects: Sequence[str]) -> str:
@@ -1125,6 +1211,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             reset_mode = "mixed"
         return cmd_reset(mode=reset_mode, fetch=not args.no_fetch)
+    if args.command == "squash":
+        return cmd_squash(message=args.message, fetch=not args.no_fetch)
     if args.command == "merge":
         if args.squash and args.no_ff:
             print("error: --squash and --no-ff are mutually exclusive", file=sys.stderr)

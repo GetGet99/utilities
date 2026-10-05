@@ -427,6 +427,22 @@ def reset_to(ref: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     return run_git(["reset", ref], cwd, check=False)
 
 
+def reset_soft_to(ref: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Captured ``git reset --soft <ref>`` (moves pointer, keeps index)."""
+    return run_git(["reset", "--soft", ref], cwd, check=False)
+
+
+def last_commit_message(cwd: Path) -> str:
+    """Full message (subject + body) of HEAD; raise GitError when unavailable."""
+    result = run_git(["log", "-1", "--format=%B"], cwd, check=False)
+    if result.returncode != 0:
+        raise GitError("cannot read HEAD commit message")
+    message = (result.stdout or "").strip()
+    if not message:
+        raise GitError("cannot read HEAD commit message")
+    return message
+
+
 def exec_reset(mode: str, ref: str, cwd: Path) -> int:
     """Inheriting ``git reset --<mode> <ref>`` so output behaves like git.
 

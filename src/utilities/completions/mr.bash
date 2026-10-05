@@ -22,7 +22,7 @@ _mr_completion() {
       COMPREPLY=( $(compgen -W "--print-completion -h --help" \
         -- "$cur") )
     else
-      COMPREPLY=( $(compgen -W "new base rebase reset merge \
+      COMPREPLY=( $(compgen -W "new base rebase reset squash merge \
         publish config completion" -- "$cur") )
     fi
     return 0
@@ -98,6 +98,15 @@ _mr_completion() {
       ;;
     reset)
       COMPREPLY=( $(compgen -W "--soft --mixed --hard --no-fetch \
+        -h --help" -- "$cur") )
+      return 0
+      ;;
+    squash)
+      if [[ "$prev" == "-m" || "$prev" == "--message" ]]; then
+        COMPREPLY=()
+        return 0
+      fi
+      COMPREPLY=( $(compgen -W "-m --message --no-fetch \
         -h --help" -- "$cur") )
       return 0
       ;;

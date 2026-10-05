@@ -27,7 +27,7 @@ _mr() {
     if [[ "$curword" == -* ]]; then
       compadd -- --print-completion -h --help
     else
-      compadd -- new base rebase reset merge publish config completion
+      compadd -- new base rebase reset squash merge publish config completion
     fi
     return
   fi
@@ -112,6 +112,16 @@ _mr() {
     reset)
       if [[ "$curword" == -* || "$curword" == "" ]]; then
         compadd -- --soft --mixed --hard --no-fetch -h --help
+      fi
+      return
+      ;;
+    squash)
+      if [[ "${words[CURRENT-1]}" == "-m" || \
+          "${words[CURRENT-1]}" == "--message" ]]; then
+        return
+      fi
+      if [[ "$curword" == -* || "$curword" == "" ]]; then
+        compadd -- -m --message --no-fetch -h --help
       fi
       return
       ;;
