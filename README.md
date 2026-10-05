@@ -7,11 +7,7 @@ Small Python CLIs (stdlib only) for day-to-day git work: `mr` + `mr-diff`.
 Requires Python ≥ 3.9.
 
 ```sh
-# isolated (recommended)
-pipx install -e .
-
-# or inside a venv (this repo uses uv, but any venv works)
-uv venv .venv && uv pip install -e .
+uv tool install --editable .
 ```
 
 This provides `mr` and `mr-diff` on `PATH`.
