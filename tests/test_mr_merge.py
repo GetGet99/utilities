@@ -222,3 +222,95 @@ def test_config_parser_wiring(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["merge", "--help"])
     assert exc.value.code == 0
+
+
+def _tty(monkeypatch: pytest.MonkeyPatch, reply: str | None, *, exc: object = None) -> None:
+    import builtins
+    import sys
+
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    if exc is not None:
+
+        def _raise(_prompt: str = "") -> str:
+            raise exc  # type: ignore[misc]
+
+        monkeypatch.setattr(builtins, "input", _raise)
+    else:
+        monkeypatch.setattr(builtins, "input", lambda _prompt="": reply)
+
+
+def test_merge_interactive_custom_message(
+    git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_wt = _feature_with_base(git_repo, tmp_path, base="main")
+    _tty(monkeypatch, "typed ship")
+    assert cmd_merge(message=None, strategy="squash", push=False, fetch=False) == 0
+    assert _out(["log", "--format=%s", "-n", "1", "main"], base_wt) == "typed ship"
+
+
+def test_merge_interactive_empty_keeps_fallback(
+    git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_wt = _feature_with_base(
+        git_repo, tmp_path, base="main", subjects=["first subject", "second subject"]
+    )
+    _tty(monkeypatch, "")
+    assert cmd_merge(message=None, strategy="squash", push=False, fetch=False) == 0
+    body = _out(["log", "--format=%B", "-n", "1", "main"], base_wt)
+    assert "first subject" in body
+    assert "second subject" in body
+
+
+def test_merge_interactive_eof_keeps_fallback(
+    git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_wt = _feature_with_base(git_repo, tmp_path, base="main", subjects=["solo"])
+    _tty(monkeypatch, None, exc=EOFError())
+    assert cmd_merge(message=None, strategy="squash", push=False, fetch=False) == 0
+    assert _out(["log", "--format=%s", "-n", "1", "main"], base_wt) == "solo"
+
+
+def test_merge_interactive_abort(
+    git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_wt = _feature_with_base(git_repo, tmp_path, base="main")
+    before = _out(["rev-parse", "main"], base_wt)
+    _tty(monkeypatch, None, exc=KeyboardInterrupt())
+    assert cmd_merge(message=None, strategy="squash", push=False, fetch=False) == 130
+    assert _out(["rev-parse", "main"], base_wt) == before
+    assert not (base_wt / "feat0.txt").exists()
+
+
+def test_merge_no_ff_never_prompts(
+    git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import builtins
+    import sys
+
+    base_wt = _feature_with_base(git_repo, tmp_path, base="main")
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    def _fail(_prompt: str = "") -> str:
+        raise AssertionError("must not prompt for --no-ff")
+
+    monkeypatch.setattr(builtins, "input", _fail)
+    assert cmd_merge(message=None, strategy="merge", push=False, fetch=False) == 0
+    parents = _out(["rev-list", "--parents", "-n", "1", "main"], base_wt).split()
+    assert len(parents) == 3
+
+
+def test_merge_explicit_message_never_prompts(
+    git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import builtins
+    import sys
+
+    base_wt = _feature_with_base(git_repo, tmp_path, base="main")
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    def _fail(_prompt: str = "") -> str:
+        raise AssertionError("must not prompt when -m is given")
+
+    monkeypatch.setattr(builtins, "input", _fail)
+    assert cmd_merge(message="explicit", strategy="squash", push=False, fetch=False) == 0
+    assert _out(["log", "--format=%s", "-n", "1", "main"], base_wt) == "explicit"

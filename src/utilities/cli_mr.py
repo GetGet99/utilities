@@ -126,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-m",
         "--message",
         default=None,
-        help="Squashed commit message (default: message of HEAD).",
+        help="Squashed commit message (default: ask when interactive, else message of HEAD).",
     )
     p_squash.add_argument(
         "--no-fetch",
@@ -142,7 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-m",
         "--message",
         default=None,
-        help="Squash/merge commit message (default: built from branch subjects).",
+        help="Squash/merge commit message (default: ask when squashing, else branch subjects).",
     )
     strategy = p_merge.add_mutually_exclusive_group()
     strategy.add_argument(
@@ -679,10 +679,15 @@ def cmd_squash(*, message: str | None, fetch: bool) -> int:
             print(f"Nothing to squash — '{current}' is already a single commit.")
             return 0
         try:
-            msg = gitops.last_commit_message(cwd)
+            fallback = gitops.last_commit_message(cwd)
         except gitops.GitError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
+        prompted = _ask_squash_message(fallback)
+        if prompted is None:
+            print("Aborted.", file=sys.stderr)
+            return 130
+        msg = prompted
     rs = gitops.reset_soft_to(mb, cwd)
     if rs.returncode != 0:
         if rs.stderr:
@@ -709,6 +714,27 @@ def _default_message(subjects: Sequence[str]) -> str:
     if not rest:
         return subject
     return subject + "\n\n" + "\n".join(rest)
+
+
+def _ask_squash_message(default: str) -> str | None:
+    try:
+        interactive = sys.stdin.isatty()
+    except (OSError, ValueError):
+        return default
+    if not interactive:
+        return default
+    print("Default commit message:")
+    print(default)
+    try:
+        typed = input("Commit message (empty keeps default): ")
+    except EOFError:
+        return default
+    except KeyboardInterrupt:
+        print(file=sys.stderr)
+        return None
+    if not typed.strip():
+        return default
+    return typed.strip()
 
 
 def cmd_merge(
@@ -905,7 +931,15 @@ def cmd_merge(
         if not subjects:
             print(f"Nothing to merge — '{current}' has no commits beyond {local_base}.")
             return 0
-        msg = _default_message(subjects)
+        fallback_msg = _default_message(subjects)
+        if resolved_strategy == "squash":
+            prompted = _ask_squash_message(fallback_msg)
+            if prompted is None:
+                print("Aborted.", file=sys.stderr)
+                return 130
+            msg = prompted
+        else:
+            msg = fallback_msg
 
     if resolved_strategy == "squash":
         print(f"Rebase clean ({to_merge} commit(s)). Squashing into {local_base}...")

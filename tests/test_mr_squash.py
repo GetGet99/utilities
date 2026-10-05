@@ -8,7 +8,7 @@ from pathlib import Path
 
 from utilities import base_store
 from utilities import git as gitops
-from utilities.cli_mr import cmd_base_set, cmd_squash, main
+from utilities.cli_mr import _ask_squash_message, cmd_base_set, cmd_squash, main
 
 
 def _git(args: list[str], cwd: Path) -> None:
@@ -127,3 +127,77 @@ def test_squash_parser_wiring(git_repo: Path) -> None:
     assert _out(["log", "--format=%s", "-n", "1", "HEAD"], git_repo) == "second"
     assert main(["squash", "-m", "again", "--no-fetch"]) == 0
     assert _out(["log", "--format=%s", "-n", "1", "HEAD"], git_repo) == "again"
+
+
+def _tty(monkeypatch: object, reply: str | None, *, exc: object = None) -> None:
+    import builtins
+    import sys
+
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)  # type: ignore[attr-defined]
+    if exc is not None:
+
+        def _raise(_prompt: str = "") -> str:
+            raise exc  # type: ignore[misc]
+
+        monkeypatch.setattr(builtins, "input", _raise)  # type: ignore[attr-defined]
+    else:
+        monkeypatch.setattr(builtins, "input", lambda _prompt="": reply)  # type: ignore[attr-defined]
+
+
+def test_squash_interactive_custom_message(git_repo: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _feature_with_commits(git_repo, ["first", "second"])
+    _tty(monkeypatch, "typed message")
+    assert cmd_squash(message=None, fetch=False) == 0
+    assert _out(["log", "--format=%s", "-n", "1", "HEAD"], git_repo) == "typed message"
+
+
+def test_squash_interactive_empty_keeps_fallback(git_repo: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _feature_with_commits(git_repo, ["first", "second"])
+    _tty(monkeypatch, "")
+    assert cmd_squash(message=None, fetch=False) == 0
+    assert _out(["log", "--format=%s", "-n", "1", "HEAD"], git_repo) == "second"
+
+
+def test_squash_interactive_whitespace_keeps_fallback(git_repo: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _feature_with_commits(git_repo, ["first", "second"])
+    _tty(monkeypatch, "   ")
+    assert cmd_squash(message=None, fetch=False) == 0
+    assert _out(["log", "--format=%s", "-n", "1", "HEAD"], git_repo) == "second"
+
+
+def test_squash_interactive_eof_keeps_fallback(git_repo: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _feature_with_commits(git_repo, ["first", "second"])
+    _tty(monkeypatch, None, exc=EOFError())
+    assert cmd_squash(message=None, fetch=False) == 0
+    assert _out(["log", "--format=%s", "-n", "1", "HEAD"], git_repo) == "second"
+
+
+def test_squash_interactive_abort(git_repo: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _feature_with_commits(git_repo, ["first", "second"])
+    before = _out(["rev-parse", "HEAD"], git_repo)
+    _tty(monkeypatch, None, exc=KeyboardInterrupt())
+    assert cmd_squash(message=None, fetch=False) == 130
+    assert _out(["rev-parse", "HEAD"], git_repo) == before
+    assert _out(["rev-list", "--count", "main..HEAD"], git_repo) == "2"
+
+
+def test_squash_explicit_message_never_prompts(git_repo: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import builtins
+    import sys
+
+    _feature_with_commits(git_repo, ["first", "second"])
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)  # type: ignore[attr-defined]
+
+    def _fail(_prompt: str = "") -> str:
+        raise AssertionError("must not prompt when -m is given")
+
+    monkeypatch.setattr(builtins, "input", _fail)  # type: ignore[attr-defined]
+    assert cmd_squash(message="explicit", fetch=False) == 0
+    assert _out(["log", "--format=%s", "-n", "1", "HEAD"], git_repo) == "explicit"
+
+
+def test_ask_non_interactive_returns_default(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import sys
+
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)  # type: ignore[attr-defined]
+    assert _ask_squash_message("fallback") == "fallback"
